@@ -424,8 +424,7 @@
         const file = new File([blob], filename, { type: 'application/pdf' });
         await navigator.share({
           files: [file],
-          title: filename,
-          text: 'Exported with KaroKleber',
+          title: filename
         });
         return;
       }
