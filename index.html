@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>PDF Task Sheet Maker (Markers → 30cm Grids)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --zoom: 0.25; } /* default 25% */
+
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; background:#f0f2f5; }
+  h1 { margin: 0 0 .75rem 0; text-align:center; }
+
+  #toolbar {
+    margin:0 auto 1rem; display:flex; gap:.75rem; align-items:center; flex-wrap: wrap;
+    justify-content:center; max-width:1200px;
+  }
+
+  /* Pretty upload */
+  #fileInput { display:none; }
+  label[for="fileInput"]{
+    padding:.5rem .9rem; border-radius:.5rem; background:#2563eb; color:#fff; cursor:pointer; font-weight:600;
+  }
+  label[for="fileInput"]:hover{ background:#1e40af; }
+  button{
+    padding:.5rem .9rem; border:none; border-radius:.5rem; background:#2563eb; color:#fff; cursor:pointer; font-weight:600;
+  }
+  button:hover{ background:#1e40af; }
+  button[disabled]{ opacity:.6; cursor:not-allowed; }
+
+  .zoomWrap { display:flex; align-items:center; gap:.5rem; }
+  .zoomWrap input[type="range"]{ width: 180px; }
+  .zoomLabel { font-size:.9rem; color:#374151; min-width: 60px; text-align:right; }
+
+  /* Container */
+  #container{
+    position:relative;
+    background:#fff; border:1px solid #e5e7eb; box-shadow:0 2px 6px rgba(0,0,0,.1);
+    padding:20px; width:auto; max-width:95vw; margin: 0 auto;
+    overflow:visible;
+    transition: box-shadow .2s ease, border-color .2s ease, width .2s ease;
+  }
+  #container.narrow { width: min(680px, 95vw); }
+
+  /* Always-visible drop zone */
+  #dropZone{
+    display:flex; align-items:center; justify-content:center; flex-direction:column;
+    gap:.35rem; text-align:center; color:#1f2937;
+    padding:18px; margin-bottom:16px; border:2px dashed #c7d2fe; border-radius:8px;
+    background: #f8fafc;
+    transition: border-color .2s ease, background .2s ease;
+    user-select:none;
+  }
+  #dropZone .dropIcon{ width:56px; height:56px; opacity:.9; }
+  #dropZone .dropTitle{ font-weight:700; }
+  #dropZone .dropText{ font-size:.9rem; color:#4b5563; }
+  #container.dragging #dropZone{ border-color:#2563eb; background:#eff6ff; }
+
+  @keyframes dropFlash {
+    0% { box-shadow: 0 0 0 0 rgba(34,197,94,.0); border-color:#2563eb; }
+    20% { box-shadow: 0 0 0 6px rgba(34,197,94,.25); border-color:#22c55e; }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,.0); border-color:#c7d2fe; }
+  }
+  #dropZone.success { animation: dropFlash 700ms ease-out 1; }
+
+  .pdfBlock{ position:relative; margin-bottom:8px; }
+  .pdfBlock > canvas{ display:block; width: 100%; height:auto; }
+
+  .hoverLine{
+    position:absolute; left:0; right:0; height:2px; background:red; pointer-events:none; display:none;
+  }
+
+  .gridMarker{
+    position:relative; margin:6px 0; height:2px; background:red;
+  }
+  .gridMarker .del{
+    position:absolute; top:-10px; right:4px; font-size:12px; line-height:1;
+    padding:2px 6px; border:none; border-radius:4px; background:#ef4444; color:#fff; cursor:pointer;
+  }
+
+  /* Bottom bar with Export */
+  #bottomBar{
+    margin: 12px auto 0;
+    display:flex; justify-content:center; gap:.75rem; max-width:1200px;
+  }
+
+  /* Busy overlay */
+  #busy{
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.35); z-index:9999;
+  }
+  #busy.active{ display:flex; }
+  .busyCard{
+    background:#fff; border-radius:10px; padding:18px 22px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+    display:flex; align-items:center; gap:12px; font-weight:600; color:#111827;
+  }
+  .spinner{
+    width:20px; height:20px; border-radius:50%; border:3px solid #e5e7eb; border-top-color:#2563eb;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<h1>PDF Task Sheet Maker</h1>
+
+<div id="toolbar">
+  <label for="fileInput">Upload PDF</label>
+  <input id="fileInput" type="file" accept="application/pdf" />
+  <div class="zoomWrap">
+    <span class="zoomLabel">Zoom</span>
+    <input id="zoomRange" type="range" min="25" max="150" value="25" step="5" />
+    <span id="zoomPct">25%</span>
+  </div>
+  <button id="undoBtn">Undo</button>
+</div>
+
+<div id="container" class="narrow">
+  <div id="dropZone">
+    <svg class="dropIcon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 17a3 3 0 0 1 3-3h1m8 6h1a3 3 0 0 0 0-6h-.5A5.5 5.5 0 0 0 6 14.5" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M12 12V4m0 0 3 3m-3-3-3 3" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="dropTitle">Drop your PDF here</div>
+    <div class="dropText">or click “Upload PDF” • add red markers for 30 cm grid answer space</div>
+  </div>
+  <!-- pages + markers injected here -->
+</div>
+
+<div id="bottomBar">
+  <button id="exportBtn">Export PDF</button>
+</div>
+
+<!-- Busy overlay -->
+<div id="busy">
+  <div class="busyCard">
+    <div class="spinner"></div>
+    <div>Working on it…</div>
+  </div>
+</div>
+
+<!-- libs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+<script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+<script>
+(() => {
+  // ----- Config -------------------------------------------------------------
+  const BASE_DPI = 72;
+  const MM_PER_INCH = 25.4;
+  const GRID_MM = 5;
+  const PAGE_SCALE = 4;
+  const MAX_WHITE = 56;            // ~2 cm at 72 dpi
+  const DEFAULT_GRID_SQUARES = 60; // ~30 cm (60 × 5mm)
+
+  const GRID_STEP_PX = Math.round(BASE_DPI * PAGE_SCALE * (GRID_MM / MM_PER_INCH));
+
+  // ----- State --------------------------------------------------------------
+  const $file = document.getElementById('fileInput');
+  const $container = document.getElementById('container');
+  const $export = document.getElementById('exportBtn');
+  const $undo = document.getElementById('undoBtn');
+  const $zoom = document.getElementById('zoomRange');
+  const $zoomPct = document.getElementById('zoomPct');
+  const $dropZone = document.getElementById('dropZone');
+  const $busy = document.getElementById('busy');
+
+  let history = [];
+  let origFileName = 'output';
+  let firstCanvasWidth = null; // intrinsic px width of PDF page
+  let zoomVal = 0.25;          // default 25%
+
+  // ----- Zoom (visual only; clicks map to intrinsic) -----------------------
+  function setZoom(val) {
+    zoomVal = Math.max(0.25, Math.min(1.5, val));
+    document.documentElement.style.setProperty('--zoom', zoomVal);
+    $zoomPct.textContent = Math.round(zoomVal * 100) + '%';
+    layoutToPdfWidth();
+  }
+  $zoom.addEventListener('input', (e) => setZoom(e.target.value / 100));
+  window.addEventListener('resize', layoutToPdfWidth);
+
+  function layoutToPdfWidth() {
+    if (!firstCanvasWidth) return; // keep narrow center before load
+    const vw = Math.max(320, window.innerWidth);
+    const maxW = Math.floor(vw * 0.95);
+    const target = Math.min(Math.round(firstCanvasWidth * zoomVal), maxW);
+    $container.classList.remove('narrow');
+    $container.style.width = target + 'px';
+  }
+
+  // ----- Drag & Drop --------------------------------------------------------
+  ['dragenter','dragover'].forEach(evt =>
+    $container.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      $container.classList.add('dragging');
+    })
+  );
+  ['dragleave','drop'].forEach(evt =>
+    $container.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      $container.classList.remove('dragging');
+    })
+  );
+  $container.addEventListener('drop', (e) => {
+    const file = (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) || null;
+    if (file && file.type === 'application/pdf') {
+      $dropZone.classList.remove('success'); void $dropZone.offsetWidth; $dropZone.classList.add('success');
+      loadPdfFile(file);
+    }
+  });
+
+  // ----- File input ---------------------------------------------------------
+  $file.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    $dropZone.classList.remove('success'); void $dropZone.offsetWidth; $dropZone.classList.add('success');
+    loadPdfFile(file);
+  });
+
+  async function loadPdfFile(file) {
+    origFileName = (file.name || 'output').replace(/\.pdf$/i,'') || 'output';
+
+    // Clear previous pages/markers
+    [...$container.querySelectorAll('.pdfBlock, .gridMarker')].forEach(n => n.remove());
+    history = [];
+    firstCanvasWidth = null;
+
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const canvas = await renderAndTrim(page, PAGE_SCALE);
+      wrapSplittableCanvas(canvas, i);
+      $container.appendChild(canvas.parentElement);
+      if (!firstCanvasWidth) {
+        firstCanvasWidth = canvas.width;
+        layoutToPdfWidth();
+      }
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ----- Render & trim ------------------------------------------------------
+  async function renderAndTrim(page, scale) {
+    const viewport = page.getViewport({ scale });
+    const c = document.createElement('canvas');
+    c.width = viewport.width;
+    c.height = viewport.height;
+    await page.render({ canvasContext: c.getContext('2d'), viewport }).promise;
+    return cropVerticalWhitespace(c, MAX_WHITE);
+  }
+
+  function cropVerticalWhitespace(srcCanvas, maxWhite) {
+    const w = srcCanvas.width, h = srcCanvas.height;
+    const ctx = srcCanvas.getContext('2d');
+    const data = ctx.getImageData(0, 0, w, h).data;
+
+    const isRowWhite = (y) => {
+      let idx = y * w * 4;
+      for (let x = 0; x < w; x++, idx += 4) {
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        if (!(r > 245 && g > 245 && b > 245)) return false;
+      }
+      return true;
+    };
+
+    let top = 0, bottom = h - 1;
+    while (top < h && isRowWhite(top)) top++;
+    while (bottom > top && isRowWhite(bottom)) bottom--;
+
+    top = Math.max(0, top - maxWhite);
+    bottom = Math.min(h - 1, bottom + maxWhite);
+
+    const newH = bottom - top + 1;
+    const out = document.createElement('canvas');
+    out.width = w; out.height = newH;
+    out.getContext('2d').drawImage(srcCanvas, 0, top, w, newH, 0, 0, w, newH);
+    return out;
+  }
+
+  // ----- Splitting & markers ------------------------------------------------
+  function wrapSplittableCanvas(canvas, pageIndex) {
+    const wrap = document.createElement('div');
+    wrap.className = 'pdfBlock';
+    wrap.dataset.page = pageIndex;
+    wrap.appendChild(canvas);
+
+    const hover = document.createElement('div');
+    hover.className = 'hoverLine';
+    wrap.appendChild(hover);
+
+    wrap.addEventListener('mousemove', (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleY = canvas.height / canvas.clientHeight;
+      const yIntrinsic = (ev.clientY - rect.top) * scaleY;
+      hover.style.top = (yIntrinsic / scaleY) + 'px';
+      hover.style.display = 'block';
+    });
+    wrap.addEventListener('mouseleave', () => { hover.style.display = 'none'; });
+
+    ['dragenter','dragover'].forEach(evt => wrap.addEventListener(evt, () => hover.style.display = 'none'));
+
+    wrap.addEventListener('click', (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleY = canvas.height / canvas.clientHeight;
+      const yIntrinsic = (ev.clientY - rect.top) * scaleY;
+      insertMarkerAt(canvas, yIntrinsic, wrap);
+    });
+  }
+
+  function insertMarkerAt(canvas, y, wrapper) {
+    const top = cropCanvas(canvas, 0, 0, canvas.width, y);
+    const bottom = cropCanvas(canvas, 0, y, canvas.width, canvas.height - y);
+    const marker = makeGridMarker();
+
+    const parent = wrapper.parentElement;
+    parent.insertBefore(top.parentElement, wrapper);
+    parent.insertBefore(marker, wrapper);
+    parent.insertBefore(bottom.parentElement, wrapper);
+    parent.removeChild(wrapper);
+
+    history.push(() => {
+      parent.removeChild(top.parentElement);
+      parent.removeChild(marker);
+      parent.removeChild(bottom.parentElement);
+      parent.appendChild(wrapper);
+    });
+  }
+
+  function cropCanvas(src, x, y, w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    c.getContext('2d').drawImage(src, x, y, w, h, 0, 0, w, h);
+    wrapSplittableCanvas(c, src.parentElement?.dataset?.page || 0);
+    return c;
+  }
+
+  function makeGridMarker() {
+    const marker = document.createElement('div');
+    marker.className = 'gridMarker';
+    const intrinsicHeight = Math.round(GRID_STEP_PX * DEFAULT_GRID_SQUARES); // ~30 cm
+    marker.dataset.intrinsicHeight = String(intrinsicHeight);
+
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.textContent = '✕';
+    del.addEventListener('click', (e) => { e.stopPropagation(); marker.remove(); });
+
+    marker.appendChild(del);
+    return marker;
+  }
+
+  function drawGridToCanvas(cnv, stepPx) {
+    const ctx = cnv.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, cnv.width, cnv.height);
+    ctx.strokeStyle = '#bbb';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x <= cnv.width; x += stepPx) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, cnv.height); ctx.stroke();
+    }
+    for (let y = 0; y <= cnv.height; y += stepPx) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cnv.width, y); ctx.stroke();
+    }
+  }
+
+  // ----- Undo / Export (with "Working…" overlay + JPEG export) --------------
+  $undo.addEventListener('click', () => {
+    const action = history.pop();
+    if (action) action();
+  });
+
+  $export.addEventListener('click', async () => {
+    try {
+      setBusy(true);
+      disableControls(true);
+
+      const pdf = await PDFLib.PDFDocument.create();
+      const blocks = Array.from($container.children).filter(n => n.id !== 'dropZone');
+      let stack = [];
+
+      const flush = async () => {
+        if (!stack.length) return;
+        const merged = mergeStack(stack);
+
+        // JPEG is significantly faster/smaller than PNG for these large pages
+        const dataUrl = merged.toDataURL('image/jpeg', 0.92);
+        const bytes = dataURLtoBytes(dataUrl);
+        const jpg = await pdf.embedJpg(bytes);
+
+        const page = pdf.addPage([merged.width, merged.height]);
+        page.drawImage(jpg, { x:0, y:0, width:merged.width, height:merged.height });
+        stack = [];
+      };
+
+      for (let b of blocks) {
+        if (b.classList && b.classList.contains('gridMarker')) {
+          const h = parseInt(b.dataset.intrinsicHeight || '0');
+          stack.push({ type:'grid', height: h });
+          await flush(); // page break AFTER each grid
+        } else if (b.querySelector?.('canvas')) {
+          stack.push({ type:'page', canvas: b.querySelector('canvas') });
+        }
+      }
+      await flush();
+
+      const bytes = await pdf.save();
+      const blob = new Blob([bytes], { type:'application/pdf' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (origFileName || 'output') + '_notted.pdf';
+      a.click();
+    } catch (err) {
+      console.error(err);
+      alert('Export failed. Check console for details.');
+    } finally {
+      setBusy(false);
+      disableControls(false);
+    }
+  });
+
+  function dataURLtoBytes(dataURL) {
+    const base64 = dataURL.split(',')[1];
+    const bin = atob(base64);
+    const len = bin.length;
+    const bytes = new Uint8Array(len);
+    for (let i=0;i<len;i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  function mergeStack(stack) {
+    const width = firstCanvasWidth || (stack.find(s => s.type==='page')?.canvas.width) || 1200;
+    const height = stack.reduce((sum, s) => sum + (s.type==='page' ? s.canvas.height : s.height), 0);
+
+    const c = document.createElement('canvas');
+    c.width = width; c.height = height;
+    const ctx = c.getContext('2d');
+    let y = 0;
+
+    for (const s of stack) {
+      if (s.type === 'page') {
+        ctx.drawImage(s.canvas, 0, y);
+        y += s.canvas.height;
+      } else if (s.type === 'grid') {
+        const g = document.createElement('canvas');
+        g.width = width; g.height = s.height;
+        drawGridToCanvas(g, GRID_STEP_PX);
+        ctx.drawImage(g, 0, y);
+        y += g.height;
+      }
+    }
+    return c;
+  }
+
+  function setBusy(on) {
+    $busy.classList.toggle('active', on);
+  }
+  function disableControls(disabled) {
+    document.querySelectorAll('button, input[type="range"], label[for="fileInput"]').forEach(el => {
+      if (el.tagName === 'LABEL') {
+        el.style.pointerEvents = disabled ? 'none' : '';
+        el.style.opacity = disabled ? '.6' : '';
+      } else {
+        el.disabled = disabled;
+      }
+    });
+  }
+
+  // init
+  setZoom(0.25); // default 25%
+})();
+</script>
+</body>
+</html>
