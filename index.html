@@ -423,8 +423,7 @@
       if (navigator.canShare && navigator.canShare({ files: [new File([blob], filename, { type: 'application/pdf' })] })) {
         const file = new File([blob], filename, { type: 'application/pdf' });
         await navigator.share({
-          files: [file],
-          title: filename
+          files: [file]
         });
         return;
       }
