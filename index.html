@@ -405,11 +405,8 @@
       await flush();
 
       const bytes = await pdf.save();
-      const blob = new Blob([bytes], { type:'application/pdf' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = (origFileName || 'output') + '_notted.pdf';
-      a.click();
+      const filename = (origFileName || 'output') + '_notted.pdf';
+      await saveOrSharePDF(bytes, filename);
     } catch (err) {
       console.error(err);
       alert('Export failed. Check console for details.');
@@ -418,6 +415,44 @@
       disableControls(false);
     }
   });
+
+  async function saveOrSharePDF(bytes, filename) {
+    try {
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      // If the platform can share files, prefer the share sheet
+      if (navigator.canShare && navigator.canShare({ files: [new File([blob], filename, { type: 'application/pdf' })] })) {
+        const file = new File([blob], filename, { type: 'application/pdf' });
+        await navigator.share({
+          files: [file],
+          title: filename,
+          text: 'Exported with KaroKleber',
+        });
+        return;
+      }
+      // Fallback: download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      // User canceled share or platform blocked it. Fallback to download.
+      console.warn('Share failed or was canceled. Falling back to download.', err);
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+  }
+
 
   function dataURLtoBytes(dataURL) {
     const base64 = dataURL.split(',')[1];
